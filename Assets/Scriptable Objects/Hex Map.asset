@@ -1,0 +1,68 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cbcbe6975bec58d439b1f0c56c730e1c, type: 3}
+  m_Name: Hex Map
+  m_EditorClassIdentifier: 
+  MapRadius: 100
+  HexSize: 1
+  NoiseScale: 0.03
+  Octaves: 4
+  Offset: {x: 0, y: 0}
+  Biomes:
+  - Name: Water
+    Type: 0
+    HexTile: {fileID: 11400000, guid: 946a2f09edec3034fbc62de22882abc1, type: 2}
+    MinHeight: 0
+    MinMoisture: 0
+    MovementCost: 0
+  - Name: Sand
+    Type: 1
+    HexTile: {fileID: 11400000, guid: b62249a4f94a80b4f8b4294c2e096f36, type: 2}
+    MinHeight: 0
+    MinMoisture: 0
+    MovementCost: 0
+  - Name: Ground
+    Type: 2
+    HexTile: {fileID: 11400000, guid: 055fc954acdec0c449737151144e1b7c, type: 2}
+    MinHeight: 0
+    MinMoisture: 0
+    MovementCost: 0
+  - Name: Forest
+    Type: 3
+    HexTile: {fileID: 11400000, guid: aee732d35069dd24faf060c200577a17, type: 2}
+    MinHeight: 0
+    MinMoisture: 0
+    MovementCost: 0
+  - Name: Jungle
+    Type: 4
+    HexTile: {fileID: 11400000, guid: 9fe82e7bc0a6d86449e7f59d0d9f92ba, type: 2}
+    MinHeight: 0
+    MinMoisture: 0
+    MovementCost: 0
+  - Name: Snow
+    Type: 5
+    HexTile: {fileID: 11400000, guid: 7b29b5f8953ef96419abfd39edfa73b5, type: 2}
+    MinHeight: 0
+    MinMoisture: 0
+    MovementCost: 0
+  - Name: Mountain
+    Type: 6
+    HexTile: {fileID: 11400000, guid: ff318adc52d4b394787c29852a7e5873, type: 2}
+    MinHeight: 0
+    MinMoisture: 0
+    MovementCost: 0
+  - Name: Volcano
+    Type: 7
+    HexTile: {fileID: 11400000, guid: 985964a563fc7734cb95e8dddc03dde1, type: 2}
+    MinHeight: 0
+    MinMoisture: 0
+    MovementCost: 0
