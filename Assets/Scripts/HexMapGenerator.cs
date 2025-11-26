@@ -1,118 +1,291 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.Tilemaps;
 
 public class HexMapGenerator : MonoBehaviour
 {
+    [Header("Nature Settings")]
+    [SerializeField] private float forestClumpScale = 0.2f;
+    [SerializeField, Range(0f, 1f)] private float forestDensity = 0.4f;
+    
+    [Header("Generation Settings")]
+    [SerializeField, Range(0.1f, 1f)] private float cityAmount = 0.75f;
+    [SerializeField] private int minCitySpacing = 15;
+    [SerializeField, Range(1, 6)] private int citySize = 4;
+    [SerializeField] private int seed = 0;
+
+    [Header("Offsets Settings")]
+    [SerializeField] private float elevationOffset = 0f;
+    [SerializeField] private float moistureOffset = 1000f;
+    [SerializeField] private float cityOffset = -1000f;
+
+
+
     [Header("Configuration")]
     [SerializeField] private MapConfiguration config;
     [SerializeField] private BiomeDefinition[] biomeTable;
     [SerializeField] private CityDefinition[] cityTable;
-
     [SerializeField] private Tilemap targetTilemap;
 
-    [SerializeField, Range(0f, 1f)] private float cityAmount = 0.7f;
+    [Header("Visuals")]
+    [SerializeField] private TileBase roadTile;
+    [SerializeField] private TileBase defaultTile;
 
-    [SerializeField] private int seed = 0;
+
 
     private Dictionary<HexCoordinates, HexCell> grid = new Dictionary<HexCoordinates, HexCell>();
     private List<HexCoordinates> cityCenters = new List<HexCoordinates>();
 
-    [ExecuteAlways]
-    private void Update()
-    {
-        Random.InitState(seed);
-    }
+    private class PathNode { public HexCoordinates Location; public PathNode Parent; public int G; public int H; public int F => G + H; }
 
     [ContextMenu("Generate Map")]
     public void GenerateMap()
     {
         grid.Clear();
-        Debug.Log($"Starting Generation: {config.MapRadius * 2}x{config.MapRadius * 2} Grid");
+        cityCenters.Clear();
+        targetTilemap.ClearAllTiles();
+        Random.InitState(seed);
 
-        // Loop through axial coordinates
-        // q = x-axis (diagonal), r = z-axis (row)
-        for (int q = -config.MapRadius; q <= config.MapRadius; q++)
-        {
-            int r1 = Mathf.Max(-config.MapRadius, -q - config.MapRadius);
-            int r2 = Mathf.Min(config.MapRadius, -q + config.MapRadius);
+        // 1. Base Terrain
+        GenerateTerrain();
 
-            for (int r = r1; r <= r2; r++)
-            {
-                CreateCell(new HexCoordinates(q, r));
-            }
-        }
+        // 2. Nature Pass (THE FIX: Breaks up empty areas)
+        GenerateNatureClusters();
 
-        GenerateCityRoads();
-        PlaceBuildings();
+        // 3. City Centers
+        PickCityLocations();
+
+        // 4. Expand Cities
+        ExpandCityCores();
+
+        // 5. Roads
+        GenerateHighways_AStar();
+
+        // 6. Render
+        DrawMap();
 
         Debug.Log($"Generated {grid.Count} tiles.");
     }
 
-    private void CreateCell(HexCoordinates coords)
+    private void GenerateTerrain()
     {
-        // 1. Calculate Noise
-        // We offset by a large number to avoid symmetry at (0,0)
-        Vector2 samplePos = coords.ToWorldPos(config.HexSize) * config.NoiseScale;
-
-        // Elevation: Defines Shape (Water vs Land vs Mountain)
-        float elevation = Mathf.PerlinNoise(samplePos.x + config.Offset.x, samplePos.y + config.Offset.y);
-
-        // Moisture: Defines Type (Desert vs Forest)
-        // We use a different offset/scale for moisture to ensure deserts can be hilly or flat
-        float moisture = Mathf.PerlinNoise((samplePos.x + 5000) * 0.8f, (samplePos.y + 5000) * 0.8f);
-
-        float cityNoise = Mathf.PerlinNoise(samplePos.x + -5000, samplePos.y + -5000);
-
-        // 2. Determine Biome
-        BiomeType selectedBiome = EvaluateBiome(elevation, moisture);
-
-        // 3. Create Data Object
-        HexCell cell = new HexCell
+        Random.InitState(seed);
+        for (int q = -config.MapRadius; q <= config.MapRadius; q++)
         {
-            Coordinates = coords,
-            HeightValue = elevation,
-            MoistureValue = moisture,
-            CurrentBiome = selectedBiome,
-            IsRoad = false,
-            HasBuilding = false,
-            IsCityZone = cityNoise > cityAmount
-        };
+            int r1 = Mathf.Max(-config.MapRadius, -q - config.MapRadius);
+            int r2 = Mathf.Min(config.MapRadius, -q + config.MapRadius);
+            for (int r = r1; r <= r2; r++)
+            {
+                HexCoordinates coords = new HexCoordinates(q, r);
+                Vector2 samplePos = coords.ToWorldPos(config.HexSize) * config.NoiseScale;
 
-        if (cityNoise > 0.85f && cell.CurrentBiome != BiomeType.Water && cell.CurrentBiome != BiomeType.Mountain)
-        {
-            cityCenters.Add(coords);
+                float elevation = Mathf.PerlinNoise(samplePos.x + elevationOffset, samplePos.y + elevationOffset);
+                float moisture = Mathf.PerlinNoise(samplePos.x + moistureOffset, samplePos.y + moistureOffset);
+                float cityNoise = Mathf.PerlinNoise((samplePos.x + cityOffset) * 0.5f, (samplePos.y + cityOffset) * 0.5f);
+
+                HexCell cell = new HexCell
+                {
+                    Coordinates = coords,
+                    HeightValue = elevation,
+                    MoistureValue = moisture,
+                    CurrentBiome = EvaluateBiome(elevation, moisture),
+                    IsRoad = false,
+                    HasBuilding = false,
+                    IsCityZone = cityNoise > cityAmount
+                };
+                grid.Add(coords, cell);
+            }
         }
-
-        grid.Add(coords, cell);
     }
 
-    private BiomeType EvaluateBiome(float height, float moisture)
+    private void GenerateNatureClusters()
     {
-        // Special Case: Volcanoes (Rare, High, Dry-ish or Random)
-        // Let's say Volcano is very high altitude
-        if (height > 0.90f) return BiomeType.Volcano;
-
-        // Layer 1: Water
-        if (height < 0.35f) return BiomeType.Water;
-
-        // Layer 2: Land Logic
-        if (height < 0.6f) // Lowlands
+        foreach (var kvp in grid)
         {
-            if (moisture < 0.5f) return BiomeType.Sand;
-            return BiomeType.Jungle; // High moisture lowlands
-        }
-        else if (height < 0.80f) // Highlands
-        {
-            if (moisture < 0.6f) return BiomeType.Forest;
-            return BiomeType.Snow; // Dense forest
-        }
+            HexCell cell = kvp.Value;
+            Vector2 pos = cell.Coordinates.ToWorldPos(config.HexSize);
 
-        // Layer 3: Peaks
-        return BiomeType.Mountain; // Snowy peaks
+            // 1. Forest Clumps on Ground
+            // We use a different noise scale (higher frequency) to create small patches
+            float detailNoise = Mathf.PerlinNoise(pos.x * forestClumpScale + seed, pos.y * forestClumpScale + seed);
+
+            if (cell.CurrentBiome == BiomeType.Ground)
+            {
+                // If noise is high, turn this boring Ground into a Forest
+                if (detailNoise > (1f - forestDensity))
+                {
+                    cell.CurrentBiome = BiomeType.Forest;
+                }
+                // Rare chance for a small Lake in the plains
+                else if (detailNoise < 0.15f)
+                {
+                    cell.CurrentBiome = BiomeType.Water;
+                }
+            }
+            // 2. Rocks/Oasis in Sand
+            else if (cell.CurrentBiome == BiomeType.Sand)
+            {
+                // Add some "Mountains" (Rocks) to break up the desert dunes
+                if (detailNoise > 0.85f)
+                {
+                    cell.CurrentBiome = BiomeType.Mountain;
+                }
+            }
+        }
     }
 
-    [ContextMenu("Draw Map")]
+    private void PickCityLocations()
+    {
+        List<HexCoordinates> candidates = new List<HexCoordinates>();
+        foreach (var kvp in grid)
+        {
+            if (kvp.Value.IsCityZone &&
+                kvp.Value.CurrentBiome != BiomeType.Water &&
+                kvp.Value.CurrentBiome != BiomeType.Mountain)
+            {
+                candidates.Add(kvp.Key);
+            }
+        }
+
+        candidates = candidates.OrderBy(x => Random.value).ToList();
+
+        foreach (HexCoordinates candidate in candidates)
+        {
+            bool tooClose = false;
+            foreach (HexCoordinates existingCity in cityCenters)
+            {
+                if (candidate.DistanceTo(existingCity) < minCitySpacing)
+                {
+                    tooClose = true;
+                    break;
+                }
+            }
+
+            if (!tooClose)
+            {
+                cityCenters.Add(candidate);
+                grid[candidate].HasBuilding = true;
+                grid[candidate].IsRoad = true;
+
+                // Ensure the city sits on firm ground, not a random forest patch we just added
+                grid[candidate].CurrentBiome = BiomeType.Ground;
+            }
+        }
+    }
+
+    private void ExpandCityCores()
+    {
+        foreach (var center in cityCenters)
+        {
+            int expandedCount = 0;
+            List<int> directions = new List<int> { 0, 1, 2, 3, 4, 5 };
+            directions = directions.OrderBy(x => Random.value).ToList();
+
+            foreach (int dir in directions)
+            {
+                if (expandedCount >= citySize) break;
+                HexCoordinates neighbor = center.GetNeighbor(dir);
+                if (grid.TryGetValue(neighbor, out HexCell cell))
+                {
+                    if (cell.CurrentBiome != BiomeType.Water &&
+                        cell.CurrentBiome != BiomeType.Mountain &&
+                        !cell.HasBuilding)
+                    {
+                        cell.HasBuilding = true;
+                        cell.IsRoad = true;
+                        cell.CurrentBiome = BiomeType.Ground; // Clear forests under buildings
+                        expandedCount++;
+                    }
+                }
+            }
+        }
+    }
+
+    private void GenerateHighways_AStar()
+    {
+        if (cityCenters.Count < 2) return;
+
+        foreach (var start in cityCenters)
+        {
+            var nearest = cityCenters
+                .Where(c => !c.Equals(start))
+                .OrderBy(c => c.DistanceTo(start))
+                .FirstOrDefault();
+
+            if (cityCenters.Count > 1)
+            {
+                var path = GetPathAStar(start, nearest);
+                if (path != null)
+                {
+                    foreach (var coord in path)
+                    {
+                        if (grid.ContainsKey(coord))
+                        {
+                            if (grid[coord].CurrentBiome == BiomeType.Water)
+                                grid[coord].CurrentBiome = BiomeType.Ground;
+
+                            grid[coord].IsRoad = true;
+                            // Optional: Clear trees from roads
+                            if (grid[coord].CurrentBiome == BiomeType.Forest)
+                                grid[coord].CurrentBiome = BiomeType.Ground;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private List<HexCoordinates> GetPathAStar(HexCoordinates start, HexCoordinates end)
+    {
+        List<PathNode> openList = new List<PathNode>();
+        HashSet<HexCoordinates> closedList = new HashSet<HexCoordinates>();
+
+        openList.Add(new PathNode { Location = start, G = 0, H = start.DistanceTo(end), Parent = null });
+
+        int safety = 0;
+        while (openList.Count > 0 && safety++ < 50000)
+        {
+            openList.Sort((a, b) => a.F.CompareTo(b.F));
+            PathNode current = openList[0];
+            openList.RemoveAt(0);
+
+            if (current.Location.Equals(end))
+            {
+                List<HexCoordinates> path = new List<HexCoordinates>();
+                while (current != null) { path.Add(current.Location); current = current.Parent; }
+                return path;
+            }
+
+            closedList.Add(current.Location);
+
+            for (int i = 0; i < 6; i++)
+            {
+                HexCoordinates neighborCoords = current.Location.GetNeighbor(i);
+                if (!grid.ContainsKey(neighborCoords) || closedList.Contains(neighborCoords)) continue;
+
+                HexCell nCell = grid[neighborCoords];
+
+                int moveCost = 10;
+                if (nCell.IsRoad) moveCost = 1;
+                else if (nCell.CurrentBiome == BiomeType.Water) moveCost = 80;
+                else if (nCell.CurrentBiome == BiomeType.Mountain) moveCost = 500;
+
+                int newG = current.G + moveCost;
+
+                PathNode existingNode = openList.Find(n => n.Location.Equals(neighborCoords));
+                if (existingNode == null)
+                    openList.Add(new PathNode { Location = neighborCoords, G = newG, H = neighborCoords.DistanceTo(end), Parent = current });
+                else if (newG < existingNode.G)
+                {
+                    existingNode.G = newG;
+                    existingNode.Parent = current;
+                }
+            }
+        }
+        return null;
+    }
+
     public void DrawMap()
     {
         targetTilemap.ClearAllTiles();
@@ -120,130 +293,62 @@ public class HexMapGenerator : MonoBehaviour
         foreach (var currentCell in grid)
         {
             HexCell cell = currentCell.Value;
+            Vector3Int tilePos = cell.Coordinates.ToOffsetCoordinates();
 
-            // Convert Axial q,r to Unity Tilemap coordinates
-            // Note: Unity's Hex Tilemap uses (col, row) which maps slightly differently depending on layout
-            // Usually for Pointy Top: Vector3Int(q, r, 0) works directly if configured right.
-            Vector3Int tilePos = new Vector3Int(cell.Coordinates.q, cell.Coordinates.r, 0);
+            TileBase tileToRender = null;
 
-            // Find the visual asset
-            TileBase tileToRender = FindTileForBiome(cell.CurrentBiome);
-            
             if (cell.HasBuilding)
-                tileToRender = FindTileForCity();
+            {
+                if (cityTable != null && cityTable.Length > 0)
+                {
+                    float random = Random.value;
+                    if (random <= 0.1f) // 10% chance of spawning a church
+                        tileToRender = cityTable[1].HexTile;
+                    else if (random <= 0.3f) //30% chance of spawning a farm
+                        tileToRender = cityTable[2].HexTile;
+                    else
+                        tileToRender = cityTable[0].HexTile;
+                }
 
+                else tileToRender = roadTile;
+            }
+            else if (cell.IsRoad)
+            {
+                tileToRender = roadTile;
+            }
+            else
+            {
+                tileToRender = FindTileForBiome(cell.CurrentBiome);
+            }
+
+            if (tileToRender == null) tileToRender = defaultTile;
             targetTilemap.SetTile(tilePos, tileToRender);
+        }
+    }
+
+    private BiomeType EvaluateBiome(float height, float moisture)
+    {
+        // TWEAKED: Less aggressive Ground, more diverse
+        if (height > 0.85f) return BiomeType.Mountain;
+        if (height < 0.35f) return BiomeType.Water;
+
+        if (height < 0.6f)
+        {
+            // Lowlands
+            if (moisture < 0.4f) return BiomeType.Sand;
+            if (moisture < 0.7f) return BiomeType.Ground;
+            return BiomeType.Forest; // Wet lowlands become forest now
+        }
+        else
+        {
+            // Highlands
+            return (moisture < 0.6f) ? BiomeType.Forest : BiomeType.Snow;
         }
     }
 
     private TileBase FindTileForBiome(BiomeType type)
     {
-        // Simple lookup - optimization: use a Dictionary<BiomeType, TileBase> cache in Start()
-        foreach (var def in biomeTable)
-        {
-            if (def.Type == type) return def.HexTile;
-        }
+        foreach (var def in biomeTable) if (def.Type == type) return def.HexTile;
         return null;
-    }
-
-    private TileBase FindTileForCity()
-    {
-        int random = Random.Range(0, 10);
-
-        if (random == 0) return cityTable[0].HexTile; // 1/11
-        if (random <= 2) return cityTable[1].HexTile; // 2/11
-        if (random <= 5) return cityTable[2].HexTile; // 3/11
-        if (random <= 10) return cityTable[3].HexTile; // 5/11
-
-        return null;
-    }
-
-    private void GenerateCityRoads()
-    {
-        // 1. Pick a few random centers to start cities from
-        // (In a real game, you'd filter this list closer to prevent overlapping cities)
-        foreach (var center in cityCenters)
-        {
-            // Only start if not already built
-            if (grid[center].IsRoad) continue;
-
-            // Start the Crawler
-            Queue<HexCoordinates> frontier = new Queue<HexCoordinates>();
-            frontier.Enqueue(center);
-            grid[center].IsRoad = true;
-
-            int roadBudget = 50; // Max roads per city (prevents infinite loops)
-            int currentRoads = 0;
-
-            while (frontier.Count > 0 && currentRoads < roadBudget)
-            {
-                HexCoordinates current = frontier.Dequeue();
-
-                // Try to grow in random directions
-                for (int i = 0; i < 6; i++)
-                {
-                    // 30% Chance to build a road in this direction (Organic Randomness)
-                    if (UnityEngine.Random.value > 0.15f) continue;
-
-                    HexCoordinates neighborCoords = current.GetNeighbor(i);
-
-                    // Validation Checks (The "Constraints")
-                    if (!grid.ContainsKey(neighborCoords)) continue; // Edge of map
-                    HexCell neighbor = grid[neighborCoords];
-
-                    if (neighbor.IsRoad) continue; // Already a road
-                    if (!neighbor.IsCityZone) continue; // Don't build outside the noise blob
-                    if (neighbor.CurrentBiome == BiomeType.Water || neighbor.CurrentBiome == BiomeType.Mountain) continue;
-
-                    // Build Road
-                    neighbor.IsRoad = true;
-                    currentRoads++;
-                    neighbor.CurrentBiome = BiomeType.Ground;
-
-                    // Add to queue to grow from here (Branching)
-                    frontier.Enqueue(neighborCoords);
-                }
-            }
-        }
-    }
-
-    private void PlaceBuildings()
-    {
-        foreach (var kvp in grid)
-        {
-            HexCell cell = kvp.Value;
-
-            // Skip if it's water, mountain, or already a road
-            if (cell.CurrentBiome == BiomeType.Water || cell.CurrentBiome == BiomeType.Mountain) continue;
-            if (cell.IsRoad) continue;
-
-            // Only build in the City Zone
-            if (!cell.IsCityZone) continue;
-
-            // Check Neighbors: Am I next to a Road?
-            bool isNextToRoad = false;
-            for (int i = 0; i < 6; i++)
-            {
-                if (grid.TryGetValue(cell.Coordinates.GetNeighbor(i), out HexCell neighbor))
-                {
-                    if (neighbor.IsRoad)
-                    {
-                        isNextToRoad = true;
-                        break;
-                    }
-                }
-            }
-
-            // Spawn Logic
-            if (isNextToRoad)
-            {
-                // 70% chance to build a house, 30% chance to leave an empty yard
-                if (UnityEngine.Random.value < 0.7f)
-                {
-                    cell.HasBuilding = true;
-                    cell.CurrentBiome = BiomeType.City; // This sets the visual to your Castle/Church tile
-                }
-            }
-        }
     }
 }

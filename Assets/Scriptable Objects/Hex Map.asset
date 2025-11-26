@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cbcbe6975bec58d439b1f0c56c730e1c, type: 3}
   m_Name: Hex Map
   m_EditorClassIdentifier: 
-  MapRadius: 100
+  MapRadius: 250
   HexSize: 1
   NoiseScale: 0.03
   Octaves: 4

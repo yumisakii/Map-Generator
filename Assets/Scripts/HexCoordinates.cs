@@ -4,10 +4,8 @@ using UnityEngine;
 [System.Serializable]
 public struct HexCoordinates : IEquatable<HexCoordinates>
 {
-    public int q; // Column (Axial)
-    public int r; // Row (Axial)
-
-    // Computed 's' (Cube coordinate)
+    public int q;
+    public int r;
     public int s => -q - r;
 
     public HexCoordinates(int q, int r)
@@ -28,16 +26,12 @@ public struct HexCoordinates : IEquatable<HexCoordinates>
 
     public override int GetHashCode()
     {
-        // HashCode.Combine is the modern, efficient way (C# 8+)
-        // If you are on an older Unity .NET version, use: q.GetHashCode() ^ r.GetHashCode();
         return HashCode.Combine(q, r);
     }
 
-    // 4. Operator Overloads (Optional but good for readable code later: if(a == b))
     public static bool operator ==(HexCoordinates a, HexCoordinates b) => a.Equals(b);
     public static bool operator !=(HexCoordinates a, HexCoordinates b) => !a.Equals(b);
 
-    // Convert to Unity World Position (Pointy-topped)
     public Vector2 ToWorldPos(float size)
     {
         float x = size * (Mathf.Sqrt(3) * q + Mathf.Sqrt(3) / 2 * r);
@@ -45,15 +39,27 @@ public struct HexCoordinates : IEquatable<HexCoordinates>
         return new Vector2(x, y);
     }
 
+    public int DistanceTo(HexCoordinates other)
+    {
+        // Formula: (|dq| + |dr| + |ds|) / 2
+        return (Mathf.Abs(q - other.q) + Mathf.Abs(r - other.r) + Mathf.Abs(s - other.s)) / 2;
+    }
+
     public HexCoordinates GetNeighbor(int directionIndex)
     {
-        // Direction offsets for Pointy-Top Hexes (odd/even row handling is automatic in Axial)
         // Directions: NE, E, SE, SW, W, NW
         int[] dQ = { 1, 1, 0, -1, -1, 0 };
         int[] dR = { -1, 0, 1, 1, 0, -1 };
-
         int dir = directionIndex % 6;
+        if (dir < 0) dir += 6; // Safety for negative indices
         return new HexCoordinates(this.q + dQ[dir], this.r + dR[dir]);
+    }
+
+    public Vector3Int ToOffsetCoordinates()
+    {
+        int col = q + (r - (r & 1)) / 2;
+        int row = r;
+        return new Vector3Int(col, row, 0);
     }
 
     public override string ToString() => $"({q}, {r})";
