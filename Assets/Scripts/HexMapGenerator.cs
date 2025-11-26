@@ -6,17 +6,17 @@ using UnityEngine.Tilemaps;
 public class HexMapGenerator : MonoBehaviour
 {
     [Header("Nature Settings")]
-    [SerializeField] private float forestClumpScale = 0.2f;
-    [SerializeField, Range(0f, 1f)] private float forestDensity = 0.4f;
+    [SerializeField] private float forestClumpScale = 0f;
+    [SerializeField, Range(0f, 1f)] private float forestDensity = 0.75f;
     
     [Header("Generation Settings")]
-    [SerializeField, Range(0.1f, 1f)] private float cityAmount = 0.75f;
-    [SerializeField] private int minCitySpacing = 15;
-    [SerializeField, Range(1, 6)] private int citySize = 4;
-    [SerializeField] private int seed = 0;
+    [SerializeField, Range(0.1f, 1f)] private float cityAmount = 0.1f;
+    [SerializeField] private int minCitySpacing = 8;
+    [SerializeField, Range(1, 6)] private int citySize = 6;
+    [SerializeField] private int seed = 33;
 
     [Header("Offsets Settings")]
-    [SerializeField] private float elevationOffset = 0f;
+    [SerializeField] private float elevationOffset = 500f;
     [SerializeField] private float moistureOffset = 1000f;
     [SerializeField] private float cityOffset = -1000f;
 
