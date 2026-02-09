@@ -2,13 +2,13 @@
 
 A procedural generation tool capable of creating organic 2D maps on a hexagonal grid. This project explores terrain generation algorithms and pathfinding within a non-Cartesian coordinate system.
 
-![Screenshot Placeholder: View of a generated map with roads]
+<img width="1581" height="876" alt="Capture d&#39;écran 2026-02-09 193613" src="https://github.com/user-attachments/assets/ac47a6d3-07eb-42f9-9999-54de728d6fbd" />
 
 ## Core Features
 
 ### Procedural Terrain Generation
-* **Perlin Noise:** Utilized Perlin Noise algorithms to generate heightmaps and biome distribution.
-* **Biome Mapping:** The system maps noise values to specific terrain types (Water, Plains, Forests, Mountains) to create natural-looking environments.
+* **Dual-Layer Perlin Noise:** Implemented a multi-pass noise system where one layer generates elevation and another generates humidity.
+* **Biome Logic:** By overlaying these two maps, the system determines biomes based on realistic rules (e.g., *Low Elevation + High Humidity* results in Water/Swamp, while *High Elevation + Low Humidity* generates Mountain Peaks).
 
 ### Hexagonal Grid Architecture
 * **Custom Grid System:** Implemented a grid logic specifically for hexagonal tiles (handling axial or cubic coordinates).
